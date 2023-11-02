@@ -381,7 +381,7 @@ internal class Environment
     }
 }
 
-public class Program
+public abstract class Program
 {
     
     static MalType Read() 
@@ -535,6 +535,13 @@ public class Program
         Standard.Set("/", new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1]));
         Standard.Set("list", new MalFunctionType(list => new MalListType(list.MalTypes)));
         Standard.Set("list?", new MalFunctionType(list => new MalBooleanType(list[0] is MalListType)));
+        Standard.Set("empty?", new MalFunctionType(list => new MalBooleanType(((MalListType)list[0]).MalTypes.Count == 0)));
+        Standard.Set("count", new MalFunctionType(list => new MalNumberType(((MalListType)list[0]).MalTypes.Count)));
+        Standard.Set("=", new MalFunctionType(list => new MalBooleanType(list[0] == list[1])));
+        Standard.Set("<", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number < ((MalNumberType)list[1]).Number)));
+        Standard.Set("<=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number <= ((MalNumberType)list[1]).Number)));
+        Standard.Set(">", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number > ((MalNumberType)list[1]).Number)));
+        Standard.Set(">=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number >= ((MalNumberType)list[1]).Number)));
         
         while (true)
         {
