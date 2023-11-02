@@ -280,11 +280,47 @@ internal class Printer
 
 internal class Environment
 {
-    internal Dictionary<Symbol, MalFunctionType> Methods;
+    internal Dictionary<string, MalType> Data;
+    internal Environment? Outer;
 
-    public Environment(Dictionary<Symbol, MalFunctionType> methods)
+    public Environment(Dictionary<string, MalType> data, Environment? outer = null)
     {
-        Methods = methods;
+        Data = data;
+        Outer = outer;
+    }
+
+    public void Set(string symbol, MalType malType)
+    {
+        Data[symbol] = malType;
+    }
+
+    public Environment? Find(string symbol)
+    {
+        if (Data.ContainsKey(symbol))
+        {
+            return this;
+        }
+
+        if (Outer is not null)
+        {
+            return Outer.Find(symbol);
+        }
+
+        return null;
+    }
+
+    public MalType? Get(string symbol)
+    {
+        var environment = Find(symbol);
+        
+        if (environment is null)
+        {
+            throw new Exception($"Symbol {symbol} not found");
+        }
+
+        var result = environment.Data[symbol];
+
+        return result;
     }
 }
 
@@ -349,7 +385,7 @@ public class Program
 
         if (ast is MalSymbolType malSymbolType)
         {
-            var lookupResult = environment.Methods[malSymbolType.Symbol];
+            var lookupResult = environment.Data[malSymbolType.Symbol.ToString()];
            
             if (lookupResult is not { } malFunctionType)
             {
@@ -375,12 +411,13 @@ public class Program
     
     public static void Main(string[] args)
     {
-        Environment Standard = new Environment(new Dictionary<Symbol, MalFunctionType>()
+        Environment Standard = new Environment(
+            new Dictionary<string, MalType>()
         {
-            { Symbol.PLUS_SYMBOL, new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1])},
-            { Symbol.STAR_SYMBOL, new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1])},
-            { Symbol.MINUS_SYMBOL, new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1])},
-            { Symbol.DIVIDE_SYMBOL, new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1])},
+            { Symbol.PLUS_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1])},
+            { Symbol.STAR_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1])},
+            { Symbol.MINUS_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1])},
+            { Symbol.DIVIDE_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1])},
         });
         
         while (true)
