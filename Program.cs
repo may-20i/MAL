@@ -13,12 +13,12 @@ internal abstract class MalAtomic : MalType
 
 internal enum Symbol
 {
-    RIGHT_PARENTHESIS,
-    PLUS_SYMBOL,
-    STAR_SYMBOL,
-    LEFT_PARENTHESIS,
-    MINUS_SYMBOL,
-    DIVIDE_SYMBOL
+    RightParenthesis,
+    PlusSymbol,
+    StarSymbol,
+    LeftParenthesis,
+    MinusSymbol,
+    DivideSymbol
 }
 
 internal class MalFunctionType : MalType
@@ -33,9 +33,14 @@ internal class MalFunctionType : MalType
 
 internal class MalSymbolType : MalAtomic
 {
-    internal Symbol Symbol;
+    internal string Symbol;
 
     internal MalSymbolType(Symbol symbol)
+    {
+        Symbol = symbol.ToString();
+    }
+    
+    internal MalSymbolType(string symbol)
     {
         Symbol = symbol;
     }
@@ -155,7 +160,7 @@ internal class Reader
             {
                 switch (symbol.Symbol)
                 {
-                   case Symbol.RIGHT_PARENTHESIS:
+                   case ")":
                        foundEnd = true;
                        break;
                 }
@@ -188,15 +193,26 @@ internal class Reader
     private MalAtomic ReadAtomic()
     {
         var token = Peek();
-
-        MalAtomic malAtomic = token.Text[0] switch
+        
+        MalAtomic malAtomic = token.Text switch
         {
-            ')' => new MalSymbolType(Symbol.RIGHT_PARENTHESIS),
-            '+' => new MalSymbolType(Symbol.PLUS_SYMBOL),
-            '*' => new MalSymbolType(Symbol.STAR_SYMBOL),
-            '-' => new MalSymbolType(Symbol.MINUS_SYMBOL),
-            >= '0' and <= '9' => ReadNumber(),
-            _ => throw new Exception($"Bad atomic {token.Text}")
+            ")" => new MalSymbolType(")"),
+            "+" => new MalSymbolType("+"),
+            "*" => new MalSymbolType("*"),
+            "-" => new MalSymbolType("-"),
+            
+            "0" => ReadNumber(),
+            "1" => ReadNumber(),
+            "2" => ReadNumber(),
+            "3" => ReadNumber(),
+            "4" => ReadNumber(),
+            "5" => ReadAtomic(),
+            "6" => ReadNumber(),
+            "7" => ReadNumber(),
+            "8" => ReadNumber(),
+            "9" => ReadNumber(),
+            
+            _ => new MalSymbolType(token.Text)
         };
 
         return malAtomic;
@@ -244,16 +260,7 @@ internal class Printer
     {
         if (malType is MalSymbolType symbol)
         {
-            var text = symbol.Symbol switch
-            {
-                Symbol.PLUS_SYMBOL => "+",
-                Symbol.STAR_SYMBOL => "*",
-                Symbol.LEFT_PARENTHESIS => "(",
-                Symbol.RIGHT_PARENTHESIS => ")",
-                _ => throw new NotImplementedException()
-            };
-
-            return text;
+            return symbol.Symbol;
         }
 
         if (malType is MalListType malListType)
@@ -270,6 +277,11 @@ internal class Printer
         if (malType is MalNumberType malNumberType)
         {
             return malNumberType.Number.ToString();
+        }
+
+        if (malType is MalFunctionType malFunctionType)
+        {
+            return $"<Function> {malFunctionType.Function} </Function>";
         }
 
         throw new NotImplementedException($"String type not implemented for {malType.ToString()}");
@@ -340,30 +352,50 @@ public class Program
 
     static MalType Evaluate(MalType malType, Environment environment)
     {
-        if (malType is not MalListType malListType)
+        if (malType is MalListType malListType)
         {
-            return EvaluateAst(malType, environment);
+            if (malListType.MalTypes.Count == 0) return malListType;
+
+            var first = malListType.MalTypes[0];
+
+            if (first is MalSymbolType { Symbol: "def!" })
+            {
+                environment.Set(((MalSymbolType)malListType[1]).Symbol, Evaluate((MalType)malListType[2], environment));
+                return environment.Get(((MalSymbolType)malListType[1]).Symbol)!;
+            }
+
+            if (first is MalSymbolType { Symbol: "let*" })
+            {
+                var newEnvironment = new Environment(new Dictionary<string, MalType>(), environment);
+                var bindings = (MalListType)malListType[1];
+                for (var i = 0; i < bindings.MalTypes.Count; i += 2)
+                {
+                    newEnvironment.Set(((MalSymbolType)bindings[i]).Symbol, Evaluate((MalType)bindings[i + 1], newEnvironment));
+                }
+                
+                return Evaluate((MalType)malListType[2], newEnvironment);
+            }
+
+            var result = EvaluateAst(malListType, environment);
+
+            if (result is not MalListType malList)
+            {
+                throw new Exception("Expected a list");
+            }
+
+            result = malList.MalTypes[0];
+
+            if (result is not MalFunctionType malFunctionType)
+            {
+                throw new Exception("Expected a function");
+            }
+
+            var invokeResult = malFunctionType.Function.Invoke(malList.Parameters());
+
+            return invokeResult;
         }
 
-        if (malListType.MalTypes.Count == 0) return malListType;
-
-        var result = EvaluateAst(malListType, environment);
-
-        if (result is not MalListType malList)
-        {
-            throw new Exception("Expected a list");
-        }
-
-        result = malList.MalTypes[0];
-        
-        if (result is not MalFunctionType malFunctionType)
-        {
-            throw new Exception("Expected a function");
-        }
-
-        var invokeResult = malFunctionType.Function.Invoke(malList.Parameters());
-        
-        return invokeResult;
+        return EvaluateAst(malType, environment);
     }
 
     static MalType EvaluateAst(MalType ast, Environment environment)
@@ -385,7 +417,7 @@ public class Program
 
         if (ast is MalSymbolType malSymbolType)
         {
-            var lookupResult = environment.Data[malSymbolType.Symbol.ToString()];
+            var lookupResult = environment.Get(malSymbolType.Symbol);
            
             if (lookupResult is not { } malFunctionType)
             {
@@ -414,11 +446,10 @@ public class Program
         Environment Standard = new Environment(
             new Dictionary<string, MalType>());
         
-        Standard.Set(Symbol.PLUS_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1]));
-        Standard.Set(Symbol.MINUS_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1]));
-        Standard.Set(Symbol.STAR_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1]));
-        Standard.Set(Symbol.DIVIDE_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1]));
-        
+        Standard.Set("+", new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1]));
+        Standard.Set("-", new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1]));
+        Standard.Set("*", new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1]));
+        Standard.Set("/", new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1]));
         
         while (true)
         {
