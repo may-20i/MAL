@@ -11,16 +11,6 @@ internal abstract class MalType
 internal abstract class MalAtomic : MalType
 {}
 
-internal enum Symbol
-{
-    RightParenthesis,
-    PlusSymbol,
-    StarSymbol,
-    LeftParenthesis,
-    MinusSymbol,
-    DivideSymbol
-}
-
 internal class MalFunctionType : MalType
 {
     internal Func<MalListType, MalType> Function;
@@ -34,15 +24,20 @@ internal class MalFunctionType : MalType
 internal class MalSymbolType : MalAtomic
 {
     internal string Symbol;
-
-    internal MalSymbolType(Symbol symbol)
-    {
-        Symbol = symbol.ToString();
-    }
     
     internal MalSymbolType(string symbol)
     {
         Symbol = symbol;
+    }
+}
+
+internal class MalStringType : MalAtomic
+{
+    internal string Text;
+    
+    public MalStringType(string text)
+    {
+        Text = text;
     }
 }
 
@@ -56,8 +51,7 @@ internal class MalBooleanType : MalAtomic
     }
 }
 
-internal class MalNullType : MalAtomic
-{}
+internal class MalNullType : MalAtomic {}
 
 internal class MalNumberType : MalAtomic
 {
@@ -214,11 +208,26 @@ internal class Reader
             '+' => new MalSymbolType("+"),
             '*' => new MalSymbolType("*"),
             '-' => new MalSymbolType("-"),
+            '"' => ReadString(),
             >= '0' and <= '9' => ReadNumber(),
             _ => ReadKeyword()
         };
 
         return malAtomic;
+    }
+
+    private MalStringType ReadString()
+    {
+        var token = Peek();
+
+        var text = token.Text;
+
+        if (text[^1] != '"')
+        {
+            throw new Exception($"Expected a string but found {token.Text}");
+        }
+
+        return new MalStringType(text[1..^1]);
     }
 
     private MalAtomic ReadKeyword()
@@ -310,6 +319,11 @@ internal class Printer
         if (malType is MalNullType)
         {
             return "null";
+        }
+
+        if (malType is MalStringType malStringType)
+        {
+            return malStringType.Text;
         }
 
         throw new NotImplementedException($"String type not implemented for {malType.ToString()}");
@@ -542,6 +556,13 @@ public abstract class Program
         Standard.Set("<=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number <= ((MalNumberType)list[1]).Number)));
         Standard.Set(">", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number > ((MalNumberType)list[1]).Number)));
         Standard.Set(">=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number >= ((MalNumberType)list[1]).Number)));
+        
+        Standard.Set("read-string", new MalFunctionType(_ => new MalStringType(Console.ReadLine() ?? "")));
+        Standard.Set("slurp", new MalFunctionType(l =>
+        {
+            var fileName = ((MalStringType)l[0]).Text;
+            return new MalStringType(File.ReadAllText(fileName));
+        }));
         
         while (true)
         {
