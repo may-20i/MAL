@@ -412,13 +412,13 @@ public class Program
     public static void Main(string[] args)
     {
         Environment Standard = new Environment(
-            new Dictionary<string, MalType>()
-        {
-            { Symbol.PLUS_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1])},
-            { Symbol.STAR_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1])},
-            { Symbol.MINUS_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1])},
-            { Symbol.DIVIDE_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1])},
-        });
+            new Dictionary<string, MalType>());
+        
+        Standard.Set(Symbol.PLUS_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1]));
+        Standard.Set(Symbol.MINUS_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1]));
+        Standard.Set(Symbol.STAR_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1]));
+        Standard.Set(Symbol.DIVIDE_SYMBOL.ToString(), new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1]));
+        
         
         while (true)
         {
