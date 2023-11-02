@@ -1,0 +1,2 @@
+(def! add-two (fn* (a) (+ a 2)))
+(def! add-three (fn* (a) (+ a 3)))
