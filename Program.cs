@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace Mal;
 
@@ -15,7 +16,19 @@ internal enum Symbol
     RIGHT_PARENTHESIS,
     PLUS_SYMBOL,
     STAR_SYMBOL,
-    LEFT_PARENTHESIS
+    LEFT_PARENTHESIS,
+    MINUS_SYMBOL,
+    DIVIDE_SYMBOL
+}
+
+internal class MalFunctionType : MalType
+{
+    internal Func<MalListType, MalType> Function;
+
+    public MalFunctionType(Func<MalListType, MalType> function)
+    {
+        Function = function;
+    }
 }
 
 internal class MalSymbolType : MalAtomic
@@ -30,21 +43,53 @@ internal class MalSymbolType : MalAtomic
 
 internal class MalNumberType : MalAtomic
 {
-    internal int Number;
+    internal readonly int Number;
 
     public MalNumberType(int number)
     {
         Number = number;
     }
+    
+    public static MalNumberType operator +(MalNumberType a, MalNumberType b)
+    {
+        return new MalNumberType(a.Number + b.Number);
+    }
+    
+    public static MalNumberType operator -(MalNumberType a, MalNumberType b)
+    {
+        return new MalNumberType(a.Number - b.Number);
+    }
+    
+    public static MalNumberType operator *(MalNumberType a, MalNumberType b)
+    {
+        return new MalNumberType(a.Number * b.Number);
+    }
+    
+    public static MalNumberType operator /(MalNumberType a, MalNumberType b)
+    {
+        return new MalNumberType((int)Math.Round((double)a.Number / b.Number));
+    }
 }
 
 internal class MalListType : MalType
 {
-    internal List<MalType> MalTypes;
+    internal List<MalType> MalTypes { get; set; }
+    
     
     public MalListType(List<MalType> malTypes)
     {
         MalTypes = malTypes;
+    }
+
+    public MalListType Parameters()
+    {
+        return new MalListType(MalTypes.Skip(1).ToList());
+    }
+
+    public object this[int i]
+    {
+        get => MalTypes[i];
+        set => MalTypes[i] = (MalType)value;
     }
 }
 
@@ -99,7 +144,7 @@ internal class Reader
     {
         Next();
         
-        var list = new List<MalType>(){new MalSymbolType(Symbol.LEFT_PARENTHESIS)};
+        var list = new List<MalType>(){};
 
         var foundEnd = false;
         while (!foundEnd)
@@ -116,9 +161,9 @@ internal class Reader
                 }
             }
             
-            list.Add(token);
-
             if (foundEnd) break;
+            
+            list.Add(token);
             
             Next();
         }
@@ -149,6 +194,7 @@ internal class Reader
             ')' => new MalSymbolType(Symbol.RIGHT_PARENTHESIS),
             '+' => new MalSymbolType(Symbol.PLUS_SYMBOL),
             '*' => new MalSymbolType(Symbol.STAR_SYMBOL),
+            '-' => new MalSymbolType(Symbol.MINUS_SYMBOL),
             >= '0' and <= '9' => ReadNumber(),
             _ => throw new Exception($"Bad atomic {token.Text}")
         };
@@ -232,9 +278,20 @@ internal class Printer
 
 #endregion
 
-internal static class Program
+internal class Environment
 {
-    static MalType Read()
+    internal Dictionary<Symbol, MalFunctionType> Methods;
+
+    public Environment(Dictionary<Symbol, MalFunctionType> methods)
+    {
+        Methods = methods;
+    }
+}
+
+public class Program
+{
+    
+    static MalType Read() 
     {
         Console.Write("> ");
         var input = Console.ReadLine() ?? "";
@@ -245,9 +302,64 @@ internal static class Program
         return response;
     }
 
-    static MalType Evaluate(MalType malType)
+    static MalType Evaluate(MalType malType, Environment environment)
     {
-        return malType;
+        if (malType is not MalListType malListType)
+        {
+            return EvaluateAst(malType, environment);
+        }
+
+        if (malListType.MalTypes.Count == 0) return malListType;
+
+        var result = EvaluateAst(malListType, environment);
+
+        if (result is not MalListType malList)
+        {
+            throw new Exception("Expected a list");
+        }
+
+        result = malList.MalTypes[0];
+        
+        if (result is not MalFunctionType malFunctionType)
+        {
+            throw new Exception("Expected a function");
+        }
+
+        var invokeResult = malFunctionType.Function.Invoke(malList.Parameters());
+        
+        return invokeResult;
+    }
+
+    static MalType EvaluateAst(MalType ast, Environment environment)
+    {
+        if (ast is MalListType malListType)
+        {
+            var list = new List<MalType>();
+            
+            foreach (var malType in malListType.MalTypes)
+            {
+                var result = Evaluate(malType, environment);
+                list.Add(result);
+            }
+
+            var malList = new MalListType(list);
+
+            return malList;
+        }
+
+        if (ast is MalSymbolType malSymbolType)
+        {
+            var lookupResult = environment.Methods[malSymbolType.Symbol];
+           
+            if (lookupResult is not { } malFunctionType)
+            {
+                throw new Exception("Expected a function");
+            }
+            
+            return malFunctionType;
+        }
+        
+        return ast;
     }
 
     static void Print(MalType malType)
@@ -256,16 +368,24 @@ internal static class Program
         Console.WriteLine(printer.PrintString(malType));
     }
 
-    static void ReadEvaluatePrint()
+    static void ReadEvaluatePrint(Environment environment)
     {
-        Print(Evaluate(Read()));
+        Print(Evaluate(Read(), environment));
     }
     
     public static void Main(string[] args)
     {
+        Environment Standard = new Environment(new Dictionary<Symbol, MalFunctionType>()
+        {
+            { Symbol.PLUS_SYMBOL, new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1])},
+            { Symbol.STAR_SYMBOL, new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1])},
+            { Symbol.MINUS_SYMBOL, new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1])},
+            { Symbol.DIVIDE_SYMBOL, new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1])},
+        });
+        
         while (true)
         {
-            ReadEvaluatePrint();
+            ReadEvaluatePrint(Standard);
         }
     }
 }
