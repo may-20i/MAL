@@ -1,5 +1,4 @@
-﻿using System.Reflection;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace Mal;
 
@@ -101,7 +100,7 @@ internal class MalListType : MalType
     public MalType this[int i]
     {
         get => MalTypes[i];
-        set => MalTypes[i] = (MalType)value;
+        set => MalTypes[i] = value;
     }
 }
 
@@ -117,20 +116,21 @@ internal class Token
 
 internal class Reader
 {
-    private int _position = 0;
+    private int _position;
 
     private readonly Regex _malRegex =
         new(@"[\s,]*(~@|[\[\]{}()'`~^@]|""(?:\\.|[^\\""])*""?|;.*|[^\s\[\]{}('""`,;)]*)");
 
     private readonly List<Token> _tokens;
 
-    public Reader(List<Token> tokens)
+    private Reader(List<Token> tokens)
     {
         _tokens = tokens;
     }
 
     public Reader()
     {
+        _tokens = new List<Token>();
     }
 
     private Token Peek()
@@ -156,7 +156,7 @@ internal class Reader
     {
         Next();
         
-        var list = new List<MalType>(){};
+        var list = new List<MalType>();
 
         var foundEnd = false;
         while (!foundEnd)
@@ -326,7 +326,7 @@ internal class Printer
             return malStringType.Text;
         }
 
-        throw new NotImplementedException($"String type not implemented for {malType.ToString()}");
+        throw new NotImplementedException($"String type not implemented for {malType}");
     }
 }
 
@@ -380,7 +380,7 @@ internal class Environment
         return null;
     }
 
-    public MalType? Get(string symbol)
+    public MalType Get(string symbol)
     {
         var environment = Find(symbol);
         
@@ -420,8 +420,8 @@ public abstract class Program
             // special forms.
             if (first is MalSymbolType { Symbol: "def!" })
             {
-                environment.Set(((MalSymbolType)malListType[1]).Symbol, Evaluate((MalType)malListType[2], environment));
-                return environment.Get(((MalSymbolType)malListType[1]).Symbol)!;
+                environment.Set(((MalSymbolType)malListType[1]).Symbol, Evaluate(malListType[2], environment));
+                return environment.Get(((MalSymbolType)malListType[1]).Symbol);
             }
 
             if (first is MalSymbolType { Symbol: "let*" })
@@ -430,10 +430,10 @@ public abstract class Program
                 var bindings = (MalListType)malListType[1];
                 for (var i = 0; i < bindings.MalTypes.Count; i += 2)
                 {
-                    newEnvironment.Set(((MalSymbolType)bindings[i]).Symbol, Evaluate((MalType)bindings[i + 1], newEnvironment));
+                    newEnvironment.Set(((MalSymbolType)bindings[i]).Symbol, Evaluate(bindings[i + 1], newEnvironment));
                 }
                 
-                return Evaluate((MalType)malListType[2], newEnvironment);
+                return Evaluate(malListType[2], newEnvironment);
             }
 
             if (first is MalSymbolType { Symbol: "do" })
@@ -540,25 +540,25 @@ public abstract class Program
     
     public static void Main(string[] args)
     {
-        Environment Standard = new Environment(
+        var standard = new Environment(
             new Dictionary<string, MalType>());
         
-        Standard.Set("+", new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1]));
-        Standard.Set("-", new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1]));
-        Standard.Set("*", new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1]));
-        Standard.Set("/", new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1]));
-        Standard.Set("list", new MalFunctionType(list => new MalListType(list.MalTypes)));
-        Standard.Set("list?", new MalFunctionType(list => new MalBooleanType(list[0] is MalListType)));
-        Standard.Set("empty?", new MalFunctionType(list => new MalBooleanType(((MalListType)list[0]).MalTypes.Count == 0)));
-        Standard.Set("count", new MalFunctionType(list => new MalNumberType(((MalListType)list[0]).MalTypes.Count)));
-        Standard.Set("=", new MalFunctionType(list => new MalBooleanType(list[0] == list[1])));
-        Standard.Set("<", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number < ((MalNumberType)list[1]).Number)));
-        Standard.Set("<=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number <= ((MalNumberType)list[1]).Number)));
-        Standard.Set(">", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number > ((MalNumberType)list[1]).Number)));
-        Standard.Set(">=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number >= ((MalNumberType)list[1]).Number)));
+        standard.Set("+", new MalFunctionType(list => (MalNumberType)list[0] + (MalNumberType)list[1]));
+        standard.Set("-", new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1]));
+        standard.Set("*", new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1]));
+        standard.Set("/", new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1]));
+        standard.Set("list", new MalFunctionType(list => new MalListType(list.MalTypes)));
+        standard.Set("list?", new MalFunctionType(list => new MalBooleanType(list[0] is MalListType)));
+        standard.Set("empty?", new MalFunctionType(list => new MalBooleanType(((MalListType)list[0]).MalTypes.Count == 0)));
+        standard.Set("count", new MalFunctionType(list => new MalNumberType(((MalListType)list[0]).MalTypes.Count)));
+        standard.Set("=", new MalFunctionType(list => new MalBooleanType(list[0] == list[1])));
+        standard.Set("<", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number < ((MalNumberType)list[1]).Number)));
+        standard.Set("<=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number <= ((MalNumberType)list[1]).Number)));
+        standard.Set(">", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number > ((MalNumberType)list[1]).Number)));
+        standard.Set(">=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number >= ((MalNumberType)list[1]).Number)));
         
-        Standard.Set("read-string", new MalFunctionType(_ => new MalStringType(Console.ReadLine() ?? "")));
-        Standard.Set("slurp", new MalFunctionType(l =>
+        standard.Set("read-string", new MalFunctionType(_ => new MalStringType(Console.ReadLine() ?? "")));
+        standard.Set("slurp", new MalFunctionType(l =>
         {
             var fileName = ((MalStringType)l[0]).Text;
             return new MalStringType(File.ReadAllText(fileName));
@@ -568,7 +568,7 @@ public abstract class Program
         {
             try
             {
-                ReadEvaluatePrint(Standard);
+                ReadEvaluatePrint(standard);
             } catch (Exception e)
             {
                 Console.WriteLine(e.Message);
