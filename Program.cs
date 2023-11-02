@@ -46,6 +46,19 @@ internal class MalSymbolType : MalAtomic
     }
 }
 
+internal class MalBooleanType : MalAtomic
+{
+    internal bool Boolean;
+    
+    public MalBooleanType(bool boolean)
+    {
+        Boolean = boolean;
+    }
+}
+
+internal class MalNullType : MalAtomic
+{}
+
 internal class MalNumberType : MalAtomic
 {
     internal readonly int Number;
@@ -91,7 +104,7 @@ internal class MalListType : MalType
         return new MalListType(MalTypes.Skip(1).ToList());
     }
 
-    public object this[int i]
+    public MalType this[int i]
     {
         get => MalTypes[i];
         set => MalTypes[i] = (MalType)value;
@@ -193,25 +206,15 @@ internal class Reader
     private MalAtomic ReadAtomic()
     {
         var token = Peek();
-        
-        MalAtomic malAtomic = token.Text switch
+        MalAtomic malAtomic;
+
+        malAtomic = token.Text[0] switch
         {
-            ")" => new MalSymbolType(")"),
-            "+" => new MalSymbolType("+"),
-            "*" => new MalSymbolType("*"),
-            "-" => new MalSymbolType("-"),
-            
-            "0" => ReadNumber(),
-            "1" => ReadNumber(),
-            "2" => ReadNumber(),
-            "3" => ReadNumber(),
-            "4" => ReadNumber(),
-            "5" => ReadAtomic(),
-            "6" => ReadNumber(),
-            "7" => ReadNumber(),
-            "8" => ReadNumber(),
-            "9" => ReadNumber(),
-            
+            ')' => new MalSymbolType(")"),
+            '+' => new MalSymbolType("+"),
+            '*' => new MalSymbolType("*"),
+            '-' => new MalSymbolType("-"),
+            >= '0' and <= '9' => ReadNumber(),
             _ => new MalSymbolType(token.Text)
         };
 
@@ -284,6 +287,16 @@ internal class Printer
             return $"<Function> {malFunctionType.Function} </Function>";
         }
 
+        if (malType is MalBooleanType malBooleanType)
+        {
+            return malBooleanType.Boolean.ToString();
+        }
+
+        if (malType is MalNullType)
+        {
+            return "null";
+        }
+
         throw new NotImplementedException($"String type not implemented for {malType.ToString()}");
     }
 }
@@ -295,10 +308,27 @@ internal class Environment
     internal Dictionary<string, MalType> Data;
     internal Environment? Outer;
 
-    public Environment(Dictionary<string, MalType> data, Environment? outer = null)
+    public Environment(Dictionary<string, MalType> data, Environment? outer = null, MalListType? binds = null, MalListType? expressions = null)
     {
         Data = data;
         Outer = outer;
+        
+        if ((binds?.MalTypes.Count ?? 0) != (expressions?.MalTypes.Count ?? 0))
+        {
+            throw new ArgumentException("Binds must match expressions.");
+        }
+
+        if (binds is not null && expressions is not null)
+        {
+            foreach (var malType in binds.MalTypes)
+            {
+                var symbol = (MalSymbolType)malType;
+                var index = binds.MalTypes.IndexOf(malType);
+                var expression = expressions[index];
+                Set(symbol.Symbol, expression);
+            }
+        }
+        
     }
 
     public void Set(string symbol, MalType malType)
@@ -358,6 +388,7 @@ public class Program
 
             var first = malListType.MalTypes[0];
 
+            // special forms.
             if (first is MalSymbolType { Symbol: "def!" })
             {
                 environment.Set(((MalSymbolType)malListType[1]).Symbol, Evaluate((MalType)malListType[2], environment));
@@ -374,6 +405,43 @@ public class Program
                 }
                 
                 return Evaluate((MalType)malListType[2], newEnvironment);
+            }
+
+            if (first is MalSymbolType { Symbol: "do" })
+            {
+                MalType doResult = null!;
+                
+                foreach (var type in malListType.Parameters().MalTypes)
+                {
+                    doResult = Evaluate(type, environment);
+                }
+
+                return doResult;
+            }
+
+            if (first is MalSymbolType { Symbol: "if" })
+            {
+                var condition = Evaluate(malListType[1], environment);
+
+                if (condition is not MalBooleanType malBooleanType)
+                    return condition is MalNullType
+                        ? Evaluate(malListType[3], environment)
+                        : Evaluate(malListType[2], environment);
+                
+                return malBooleanType.Boolean ? Evaluate(malListType[2], environment) : Evaluate(malListType[3], environment);
+
+            }
+
+            if (first is MalSymbolType { Symbol: "fn*" })
+            {
+                
+                var newFunction = new MalFunctionType((l) =>
+                {
+                    var newEnvironment = new Environment(new Dictionary<string, MalType>(), environment, (MalListType)malListType[1], l);
+                    return Evaluate(malListType[2], newEnvironment);
+                });
+
+                return newFunction;
             }
 
             var result = EvaluateAst(malListType, environment);
