@@ -215,6 +215,20 @@ internal class Reader
             '*' => new MalSymbolType("*"),
             '-' => new MalSymbolType("-"),
             >= '0' and <= '9' => ReadNumber(),
+            _ => ReadKeyword()
+        };
+
+        return malAtomic;
+    }
+
+    private MalAtomic ReadKeyword()
+    {
+        var token = Peek();
+
+        MalAtomic malAtomic = token.Text switch
+        {
+            "true" => new MalBooleanType(true),
+            "false" => new MalBooleanType(false),
             _ => new MalSymbolType(token.Text)
         };
 
@@ -274,7 +288,8 @@ internal class Printer
                 var result = PrintString(type);
                 results.Add(result);
             }
-            return string.Join(" ", results.ToArray());
+
+            return " ( " + string.Join(" ", results.ToArray()) + " ) ";
         }
 
         if (malType is MalNumberType malNumberType)
@@ -518,10 +533,18 @@ public class Program
         Standard.Set("-", new MalFunctionType(list => (MalNumberType)list[0] - (MalNumberType)list[1]));
         Standard.Set("*", new MalFunctionType(list => (MalNumberType)list[0] * (MalNumberType)list[1]));
         Standard.Set("/", new MalFunctionType(list => (MalNumberType)list[0] / (MalNumberType)list[1]));
+        Standard.Set("list", new MalFunctionType(list => new MalListType(list.MalTypes)));
+        Standard.Set("list?", new MalFunctionType(list => new MalBooleanType(list[0] is MalListType)));
         
         while (true)
         {
-            ReadEvaluatePrint(Standard);
+            try
+            {
+                ReadEvaluatePrint(Standard);
+            } catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
         }
     }
 }
