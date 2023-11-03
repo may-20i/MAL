@@ -13,6 +13,7 @@ internal abstract class MalAtomic : MalType
 internal class MalFunctionType : MalType
 {
     internal Func<MalListType, MalType> Function;
+    internal bool IsMacro = false;
 
     public MalFunctionType(Func<MalListType, MalType> function)
     {
@@ -157,6 +158,7 @@ internal class Reader
     {
         var tokens = Tokenize(text);
         var reader = new Reader(tokens);
+        
         var malType = reader.ReadForm();
 
         return malType;
@@ -261,10 +263,20 @@ internal class Reader
         MalType result = token.Text switch
         {
             "(" => ReadList(),
+            "'" => Quote(),
             _ => ReadAtomic()
         };
 
         return result;
+    }
+    
+    private MalListType Quote()
+    {
+        Next();
+        var quoted = new MalListType(new List<MalType>());
+        quoted.MalTypes.Add(new MalSymbolType("quote"));
+        quoted.MalTypes.Add(ReadForm());
+        return quoted;
     }
 
     private List<Token> Tokenize(string text)
@@ -343,6 +355,12 @@ internal class Printer
 
         throw new NotImplementedException($"String type not implemented for {malType}");
     }
+    
+    internal MalNullType Print(MalType malType)
+    {
+        Console.WriteLine(PrintString(malType));
+        return new MalNullType();
+    }
 }
 
 #endregion
@@ -418,44 +436,81 @@ public abstract class Program
         var input = Console.ReadLine() ?? "";
         var reader = new Reader();
         
-        // handle Reader macros.
-        input = input.Replace("@", "deref ");
-
         var response = reader.ReadString(input);
         
         
         return response;
     }
 
-    private static MalType Evaluate(MalType malType, Environment environment)
+    private static bool IsMacroCall(MalType ast, Environment environment)
     {
-        if (malType is not MalListType malListType) return EvaluateAst(malType, environment);
-        if (malListType.MalTypes.Count == 0) return malListType;
+        if (ast is not MalListType malListType) return false;
+        if (malListType.MalTypes.Count == 0) return false;
 
         var first = malListType.MalTypes[0];
 
-        switch (first)
+        if (first is not MalSymbolType malSymbolType) return false;
+
+        try
+        {
+            var result = environment.Get(malSymbolType.Symbol);
+
+            if (result is not MalFunctionType malFunctionType) return false;
+
+            return malFunctionType.IsMacro;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static MalType MacroExpand(MalType ast, Environment environment)
+    {
+        while (IsMacroCall(ast, environment))
+        {
+            var malListType = (MalListType)ast;
+            var first = (MalSymbolType)malListType.MalTypes[0];
+            var macro = (MalFunctionType)environment.Get(first.Symbol);
+            var expanded = macro.Function.Invoke(malListType.Parameters());
+            
+            ast = expanded;
+        }
+
+        return ast;
+    }
+
+    private static MalType Evaluate(MalType malType, Environment environment)
+    {
+        if (malType is not MalListType ast) return EvaluateAst(malType, environment);
+        if (ast.MalTypes.Count == 0) return ast;
+
+        ast = (MalListType)MacroExpand(ast, environment);
+        
+        if (ast is not MalListType) return EvaluateAst(ast, environment);
+        
+        switch (ast.MalTypes[0])
         {
             // special forms.
             case MalSymbolType { Symbol: "def!" }:
-                environment.Set(((MalSymbolType)malListType[1]).Symbol, Evaluate(malListType[2], environment));
-                return environment.Get(((MalSymbolType)malListType[1]).Symbol);
+                environment.Set(((MalSymbolType)ast[1]).Symbol, Evaluate(ast[2], environment));
+                return environment.Get(((MalSymbolType)ast[1]).Symbol);
             case MalSymbolType { Symbol: "let*" }:
             {
                 var newEnvironment = new Environment(new Dictionary<string, MalType>(), environment);
-                var bindings = (MalListType)malListType[1];
+                var bindings = (MalListType)ast[1];
                 for (var i = 0; i < bindings.MalTypes.Count; i += 2)
                 {
                     newEnvironment.Set(((MalSymbolType)bindings[i]).Symbol, Evaluate(bindings[i + 1], newEnvironment));
                 }
                 
-                return Evaluate(malListType[2], newEnvironment);
+                return Evaluate(ast[2], newEnvironment);
             }
             case MalSymbolType { Symbol: "do" }:
             {
                 MalType doResult = null!;
                 
-                foreach (var type in malListType.Parameters().MalTypes)
+                foreach (var type in ast.Parameters().MalTypes)
                 {
                     doResult = Evaluate(type, environment);
                 }
@@ -464,28 +519,45 @@ public abstract class Program
             }
             case MalSymbolType { Symbol: "if" }:
             {
-                var condition = Evaluate(malListType[1], environment);
+                var condition = Evaluate(ast[1], environment);
 
                 if (condition is not MalBooleanType malBooleanType)
                     return condition is MalNullType
-                        ? Evaluate(malListType[3], environment)
-                        : Evaluate(malListType[2], environment);
+                        ? Evaluate(ast[3], environment)
+                        : Evaluate(ast[2], environment);
                 
-                return malBooleanType.Boolean ? Evaluate(malListType[2], environment) : Evaluate(malListType[3], environment);
+                return malBooleanType.Boolean ? Evaluate(ast[2], environment) : Evaluate(ast[3], environment);
             }
             case MalSymbolType { Symbol: "fn*" }:
             {
                 var newFunction = new MalFunctionType((l) =>
                 {
-                    var newEnvironment = new Environment(new Dictionary<string, MalType>(), environment, (MalListType)malListType[1], l);
-                    return Evaluate(malListType[2], newEnvironment);
+                    var newEnvironment = new Environment(new Dictionary<string, MalType>(), environment, (MalListType)ast[1], l);
+                    return Evaluate(ast[2], newEnvironment);
                 });
 
                 return newFunction;
             }
+            case MalSymbolType { Symbol: "quote" }:
+            {
+                return ast[1];
+            }
+            case MalSymbolType { Symbol: "defmacro!" }:
+            {
+                var malFunction = (MalFunctionType)Evaluate(ast[2], environment);
+                malFunction.IsMacro = true;
+                
+                environment.Set(((MalSymbolType)ast[1]).Symbol, malFunction);
+                return environment.Get(((MalSymbolType)ast[1]).Symbol);
+            }
+            case MalSymbolType { Symbol: "macroexpand" }:
+            {
+                var first = ast[1];
+                return MacroExpand(first, environment);
+            }
         }
 
-        var result = EvaluateAst(malListType, environment);
+        var result = EvaluateAst(ast, environment);
 
         if (result is not MalListType malList)
         {
@@ -509,13 +581,7 @@ public abstract class Program
     {
         if (ast is MalListType malListType)
         {
-            var list = new List<MalType>();
-            
-            foreach (var malType in malListType.MalTypes)
-            {
-                var result = Evaluate(malType, environment);
-                list.Add(result);
-            }
+            var list = malListType.MalTypes.Select(malType => Evaluate(malType, environment)).ToList();
 
             var malList = new MalListType(list);
 
@@ -571,11 +637,23 @@ public abstract class Program
         standard.Set("atom", new MalFunctionType(list => new MalAtomType(list[0])));
         standard.Set("atom?", new MalFunctionType(list => new MalBooleanType(list[0] is MalAtomType)));
         standard.Set("deref", new MalFunctionType(list => ((MalAtomType)list[0]).MalType));
+        standard.Set("cons", new MalFunctionType(list => new MalListType(((MalListType)list[0]).MalTypes.Concat(((MalListType)list[1]).MalTypes).ToList())));
+        standard.Set("concat", new MalFunctionType(list =>
+        {
+            var result = new MalListType(new List<MalType>());
+            foreach (var type in list.MalTypes.SelectMany(malType => ((MalListType)malType).MalTypes))
+            {
+                result.MalTypes.Add(type);
+            }
+
+            return result;
+        }));
         standard.Set("reset!", new MalFunctionType(list =>
         {
             ((MalAtomType)list[0]).MalType = list[1];
             return ((MalAtomType)list[0]).MalType;
         }));
+        standard.Set("print", new MalFunctionType(list => new Printer().Print(list[0])));
         standard.Set("swap!", new MalFunctionType(list =>
         {
             var atom = (MalAtomType)list[0];
@@ -591,6 +669,7 @@ public abstract class Program
             atom.MalType = result;
             return atom.MalType;
         }));
+        standard.Set("combine-strings", new MalFunctionType(list => new MalStringType(string.Join("", list.MalTypes.Select(m => ((MalStringType)m).Text)))));
         standard.Set("read-string", new MalFunctionType(l => reader.ReadString(((MalStringType)l[0]).Text)));
         standard.Set("slurp", new MalFunctionType(l => new MalStringType(File.ReadAllText(((MalStringType)l[0]).Text))));
         standard.Set("line-slurp", new MalFunctionType(l =>
@@ -604,20 +683,8 @@ public abstract class Program
             return result;
         }));
         
-        standard.Set("eval", new MalFunctionType(l => Evaluate(l[0], standard)));
-        standard.Set("typeof", new MalFunctionType(l => new MalStringType(l[0].GetType().Name)));
-
-        // this loads the standard library.
-        var initial = new List<string>()
-        {
-            "(def! not (fn* (a) (if a false true)))",
-            "(def! load-file (fn* (f) (eval (read-string (slurp f)))))",
-        };
-
-        foreach (var s in initial)
-        {
-            Evaluate(reader.ReadString(s), standard);
-        }
+        standard.Set("eval", new MalFunctionType(list => Evaluate(list[0], standard)));
+        standard.Set("typeof", new MalFunctionType(list => new MalStringType(list[0].GetType().Name)));
 
         while (true)
         {
