@@ -104,6 +104,16 @@ internal class MalListType : MalType
     }
 }
 
+internal class MalAtomType : MalType
+{
+    internal MalType MalType;
+
+    public MalAtomType(MalType malType)
+    {
+        MalType = malType;
+    }
+}
+
 #endregion
 
 #region Reader
@@ -325,6 +335,11 @@ internal class Printer
         {
             return malStringType.Text;
         }
+        
+        if (malType is MalAtomType malAtomType)
+        {
+            return $"atom => {PrintString(malAtomType.MalType)}";
+        }
 
         throw new NotImplementedException($"String type not implemented for {malType}");
     }
@@ -402,8 +417,12 @@ public abstract class Program
         Console.Write("> ");
         var input = Console.ReadLine() ?? "";
         var reader = new Reader();
+        
+        // handle Reader macros.
+        input = input.Replace("@", "deref ");
 
         var response = reader.ReadString(input);
+        
         
         return response;
     }
@@ -549,7 +568,29 @@ public abstract class Program
         standard.Set(">", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number > ((MalNumberType)list[1]).Number)));
         standard.Set(">=", new MalFunctionType(list => new MalBooleanType(((MalNumberType)list[0]).Number >= ((MalNumberType)list[1]).Number)));
         standard.Set("str", new MalFunctionType(list => new MalStringType(((MalStringType)list[0]).Text)));
-
+        standard.Set("atom", new MalFunctionType(list => new MalAtomType(list[0])));
+        standard.Set("atom?", new MalFunctionType(list => new MalBooleanType(list[0] is MalAtomType)));
+        standard.Set("deref", new MalFunctionType(list => ((MalAtomType)list[0]).MalType));
+        standard.Set("reset!", new MalFunctionType(list =>
+        {
+            ((MalAtomType)list[0]).MalType = list[1];
+            return ((MalAtomType)list[0]).MalType;
+        }));
+        standard.Set("swap!", new MalFunctionType(list =>
+        {
+            var atom = (MalAtomType)list[0];
+            var function = (MalFunctionType)list[1];
+            var arguments = new MalListType(new List<MalType>(){atom.MalType});
+            
+            if (list.MalTypes.Count > 2)
+            {
+                arguments.MalTypes.AddRange(list.MalTypes.Skip(2));
+            }
+            
+            var result = function.Function.Invoke(arguments);
+            atom.MalType = result;
+            return atom.MalType;
+        }));
         standard.Set("read-string", new MalFunctionType(l => reader.ReadString(((MalStringType)l[0]).Text)));
         standard.Set("slurp", new MalFunctionType(l => new MalStringType(File.ReadAllText(((MalStringType)l[0]).Text))));
         standard.Set("line-slurp", new MalFunctionType(l =>
